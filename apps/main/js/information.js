@@ -148,8 +148,6 @@ export function createPreventionPage(){
     const button=document.createElement('button');button.type='button';button.dataset.goPage=key;button.innerHTML=`<span>${number}</span>${label}`;nav.append(button);
   });
   const skin=document.getElementById('skin-toggle');nav.append(skin);
-  const skinLabel=document.createElement('span');skinLabel.className='skin-toggle__label';skin.append(skinLabel);
-  const label=()=>{skinLabel.textContent=skin.getAttribute('aria-label')?.includes('淺色')?'淺色版':'深色版';};label();new MutationObserver(label).observe(skin,{attributes:true,attributeFilter:['aria-label']});
   document.getElementById('app').append(nav);
 }
 

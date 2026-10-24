@@ -66,7 +66,8 @@ const page = () => document.querySelector('.page.is-active')?.dataset.page;
 
 function setRunning(on) {
   if (!button) return;
-  button.textContent = on ? '■ 停止展演' : '▶ 自動展演';
+  button.textContent = on ? '■' : '▶';
+  button.setAttribute('aria-label', on ? '停止展演' : '自動展演');
   button.classList.toggle('is-running', on);
   document.documentElement.classList.toggle('is-autorun', on);
 }
@@ -147,7 +148,8 @@ function mount(nav) {
   button = document.createElement('button');
   button.type = 'button';
   button.className = 'autorun-toggle';
-  button.textContent = '▶ 自動展演';
+  button.textContent = '▶';
+  button.setAttribute('aria-label', '自動展演');
   button.onclick = () => (document.documentElement.classList.contains('is-autorun') ? stop() : play());
   nav.prepend(button);
 }
