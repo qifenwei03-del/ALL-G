@@ -23,6 +23,12 @@
 import { createSync } from './sync.js';
 import { planFor } from './plan.js';
 
+// GitHub Pages 沒有這個專案的 WebSocket relay。公開網頁版因此改成單機展示，
+// 所有操作只改這一頁；展場用的 Node/LAN 版本仍維持雙向同步。
+// ?standalone=1 讓本機也能直接驗證同一套行為。
+const STANDALONE = location.hostname.endsWith('.github.io')
+  || new URLSearchParams(location.search).get('standalone') === '1';
+
 const $ = (id) => document.getElementById(id);
 const els = {
   body: document.body,
@@ -284,15 +290,18 @@ const initialPreventionCatalog=[
   {name:'坡地／土砂',topics:['結構異常觀察','排水與地盤']},
 ];
 let preventionCatalog=[],selectedPrevention=null,catalogKey='',lastPadState={};
+let standaloneRun=0,standaloneRoute=-1;
 function togglePageMenu(open){$('page-menu').hidden=!open;$('page-menu-toggle').setAttribute('aria-expanded',String(open));}
 $('page-menu-toggle').onclick=()=>togglePageMenu($('page-menu').hidden);
 $('page-menu-close').onclick=()=>togglePageMenu(false);
 document.querySelectorAll('[data-scene]').forEach(button=>button.onclick=()=>{
-  if(!sync.isOpen()){toast('尚未連上主螢幕，請確認連線。');return;}
+  if(!STANDALONE&&!sync.isOpen()){toast('尚未連上主螢幕，請確認連線。');return;}
   const scene=button.dataset.scene;
+  standaloneRun+=1;
   cmdSeq+=1;
   const payload={scene,phase:'idle',route:-1,exit:null,anim:null,cmd:'page-select',cmdId:cmdTag+'-'+cmdSeq,now:Date.now()};
-  sync.send(payload);render({...lastPadState,...payload});togglePageMenu(false);
+  if(!STANDALONE)sync.send(payload);
+  render({...lastPadState,...payload});togglePageMenu(false);
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')togglePageMenu(false);});
 function renderPreventionPicker(s){
@@ -328,10 +337,14 @@ function renderPreventionPicker(s){
   root.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.textContent===selectedPrevention?.topic)));
 }
 function selectPrevention(disaster,topic){
-  if(!sync.isOpen()){toast('尚未連上主螢幕，請確認連線後再選題。');return;}
-  render({...lastPadState,scene:'prevention',prevention:{disaster,topic,description:'等待主螢幕回傳科普說明，請保持主螢幕頁面開啟。',action:''}});
+  if(!STANDALONE&&!sync.isOpen()){toast('尚未連上主螢幕，請確認連線後再選題。');return;}
+  const localInfo=STANDALONE?{
+    description:`${topic}是建築防災的重要環節；平時確認設施狀態與避難方向，災害發生時才能迅速應變。`,
+    action:'定期檢查、保持通道暢通；發現異常時遠離危險區域並通知管理人員。',
+  }:{description:'等待主螢幕回傳科普說明，請保持主螢幕頁面開啟。',action:''};
+  render({...lastPadState,scene:'prevention',prevention:{disaster,topic,...localInfo}});
   cmdSeq+=1;
-  sync.send({scene:'prevention',cmd:'prevention-select',cmdId:cmdTag+'-'+cmdSeq,preventionChoice:{disaster,topic},now:Date.now()});
+  if(!STANDALONE)sync.send({scene:'prevention',cmd:'prevention-select',cmdId:cmdTag+'-'+cmdSeq,preventionChoice:{disaster,topic},now:Date.now()});
 }
 function render(s) {
   lastPadState=s??{};
@@ -349,7 +362,7 @@ function render(s) {
     const info=s?.prevention;
     $('p-disaster').textContent=info?.disaster||'建築防災科普';
     $('p-topic').textContent=info?.topic||'請選擇科普主題';
-    $('p-description').textContent=info?.description||'點選上方災害與下方科普主題，主螢幕會同步展示。';
+    $('p-description').textContent=info?.description||(STANDALONE?'點選上方災害與下方科普主題即可查看。':'點選上方災害與下方科普主題，主螢幕會同步展示。');
     $('p-action').textContent=info?.action||'';
     document.querySelector('.prevention-advice').hidden=!info?.action;
     document.querySelectorAll('.prevention-disasters span').forEach(el=>el.classList.toggle('is-selected',el.textContent===info?.disaster));
@@ -409,7 +422,10 @@ document.addEventListener('visibilitychange', () => {
   } catch { /* 沒有 Battery API，用預設值 */ }
 })();
 
-const sync = createSync({
+const sync = STANDALONE ? {
+  send() {},
+  isOpen: () => false,
+} : createSync({
   role: 'pad',
   // 要連哪一台大螢幕：純瀏覽器用網址的 ?server=（不設這個變數）；
   // 包成 App（Capacitor）之後沒有 query string 可以帶，由外面先設好 window.PAD_SERVER。
@@ -420,6 +436,10 @@ const sync = createSync({
     els.link.querySelector('b').textContent = ok ? '已連線' : '連線中…';
   },
 });
+if(STANDALONE){
+  els.link.dataset.ok='1';
+  els.link.querySelector('b').textContent='單機模式';
+}
 
 /* ---------------------------------------------------------------- 手動操作
    待機頁**點一下** → 火災警報；警報頁**往上滑** → 雲端宅邸 App。
@@ -457,11 +477,11 @@ function drive(target) {
      下面那行 render() 會讓本機畫面照樣換頁，看起來像成功了，但其實沒送出去；
      而這三頁的狀態列刻意藏了「已連線」的字（要像手機鎖屏），斷線只剩一個小圖示在閃。
      兩件事加起來就會變成「大螢幕沒跟著動」的誤判 —— 所以這裡一定要跳字。 */
-  if (!sync.isOpen()) {
+  if (!STANDALONE && !sync.isOpen()) {
     toast('<b>沒有連上大螢幕</b><br>網址要帶 ?server=大螢幕IP:5280');
     console.warn('[pad] 沒有連上大螢幕，這一下只會改本機畫面。檢查網址的 ?server=');
   }
-  sync.send(payload);
+  if(!STANDALONE)sync.send(payload);
   render(payload);
 }
 
@@ -482,6 +502,19 @@ let cmdSeq = 0;
 const cmdTag = Math.random().toString(36).slice(2, 8);   // 這台 Pad 的識別，避免兩台的序號撞號
 
 function command(cmd, btns = []) {
+  if (STANDALONE) {
+    if(cmd==='route-next'||standaloneRoute<0)standaloneRoute=(standaloneRoute+1)%5;
+    const route=standaloneRoute,exit=route<3?'A':'B',now=Date.now(),run=++standaloneRun;
+    const payload={scene:'aiRoute',phase:'running',route,exit,anim:{kind:'route',t0:now,dur:12},now};
+    render(payload);
+    for(const b of btns)if(b)b.disabled=true;
+    setTimeout(()=>{for(const b of btns)if(b)b.disabled=false;},CMD_LOCK);
+    setTimeout(()=>{
+      if(run!==standaloneRun||lastPadState.scene!=='aiRoute'||lastPadState.route!==route)return;
+      render({...payload,phase:'cleared',anim:null,now:Date.now()});
+    },12000);
+    return;
+  }
   if (!sync.isOpen()) {
     toast('<b>沒有連上大螢幕</b><br>網址要帶 ?server=大螢幕IP:5280');
     console.warn('[pad] 沒有連上大螢幕，逃生動線的指令送不出去');
